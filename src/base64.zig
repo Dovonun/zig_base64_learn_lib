@@ -14,46 +14,10 @@ fn calc_encoded_size(lenght: usize) usize {
         unreachable;
     }) * 4; // TODO: read language spec and complain
 }
-
 test "calc_encoded_size" {
     try std.testing.expect(calc_encoded_size(1) == 4);
     try std.testing.expect(calc_encoded_size(8) == 12);
     try std.testing.expect(calc_encoded_size(10000) == 13336);
-}
-
-fn calc_decoded_size(input: []const u8) usize {
-    const threeByte_groups = std.math.divExact(usize, input.len, 4) catch |err| switch (err) {
-        error.UnexpectedRemainder => @panic("input length is not valid base64!"),
-        error.DivisionByZero => unreachable,
-    };
-
-    const prePadSub_bytes = threeByte_groups * 3;
-    if (std.mem.endsWith(u8, input, "==")) return prePadSub_bytes - 2;
-    if (std.mem.endsWith(u8, input, "=")) return prePadSub_bytes - 1;
-    return prePadSub_bytes;
-}
-
-test "calc_decoded_size" {
-    try std.testing.expect(calc_decoded_size("abc=") == 2);
-    try std.testing.expect(calc_decoded_size("AAAAAA==") == 4);
-    try std.testing.expect(calc_decoded_size("AAAABBBBCCCC") == 9);
-}
-
-pub fn encode_u8(bits: u6) u8 {
-    // var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    // const allocator = gpa.allocator();
-
-    std.debug.print("{}\n", .{bits});
-
-    const char: u8 = switch (bits) {
-        0...25 => @as(u8, bits) + 'A',
-        26...51 => @as(u8, bits) - 26 + 'a',
-        52...61 => @as(u8, bits) - 52 + '0',
-        62 => "+"[0],
-        63 => "/"[0],
-    };
-
-    return char;
 }
 
 const u6Index_base64_arr = blk: {
@@ -82,28 +46,14 @@ const base64_u6_table = blk: {
     for (u6Index_base64_arr, 0..) |char, i| {
         table[char] = @as(u8, i);
     }
-    if (table[PADDING] != 0x00) @panic("Padding char is part of base64 set.");
+    if (table[PADDING] != 0x00) @panic("Padding char can't be part of the base64 set.");
     table[PADDING] = PADDING;
-
     break :blk table;
 };
 test "u8_u6_table" {
     try std.testing.expect(base64_u6_table['A'] == 0);
     try std.testing.expect(base64_u6_table['0'] == 52);
-}
-
-pub fn old_encode(allocator: std.mem.Allocator, input: []u8) ![]u8 {
-    const foo = allocator.alloc(u8, input.len * 2);
-
-    // const bar: u8 = undefined;
-    for (input) |byte| {
-        // if (bar < 1) {
-        //     foo
-        // }
-        foo[0] = encode_u8(byte);
-    }
-
-    return foo;
+    try std.testing.expect(base64_u6_table[PADDING] == PADDING);
 }
 
 pub fn encode(allocator: std.mem.Allocator, input: []const u8) []u8 {
@@ -153,7 +103,7 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8) ![]u8 {
     for (input_buf) |*c| c.* = base64_u6_table[c.*];
 
     const vec_len = 16;
-    const Vec = @Vector(vec_len, u8); // 128-bit SIMD (16 bytes)
+    const Vec = @Vector(vec_len, u8);
     const zeroes: Vec = @splat(0);
 
     var v: usize = 0;
@@ -162,16 +112,8 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8) ![]u8 {
         const cmp = chunk == zeroes;
         if (@reduce(.Or, cmp)) return DecodeError.InvalidCharacter;
     }
-
-    while (v < input_buf.len) : (v += 1) {
-        std.debug.print("char {x}\n", .{input_buf[v]});
+    while (v < input_buf.len) : (v += 1)
         if (input_buf[v] == 0x00) return DecodeError.InvalidCharacter;
-    }
-
-    std.debug.print("Input {s}\n", .{input});
-    std.debug.print("Input {x}\n", .{input});
-    std.debug.print("Input {s}\n", .{input_buf});
-    std.debug.print("Input {x}\n", .{input_buf});
 
     var group_count = std.math.divExact(usize, input_buf.len, 4) catch |err| switch (err) {
         error.UnexpectedRemainder => return DecodeError.InvalidInputSize,
@@ -192,7 +134,6 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8) ![]u8 {
     while (i < group_count) : (i += 1) {
         const s_index = i * BASE64_GROUP_SIZE;
         const section = input_buf[s_index .. s_index + BASE64_GROUP_SIZE];
-
         const index = i * RAW_GROUP_SIZE;
         output[index] = (section[0] << 2) | (section[1] >> 4);
         output[index + 1] = (section[1] << 4) | (section[2] >> 2);
@@ -204,9 +145,7 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8) ![]u8 {
 test "decode" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
-    std.debug.print("foo", .{});
     try std.testing.expectEqualStrings("hi", try decode(allocator, "aGk="));
-    std.debug.print("foo", .{});
     try std.testing.expectEqualStrings("abc", try decode(allocator, "YWJj"));
     try std.testing.expectEqualStrings("hello world", try decode(allocator, "aGVsbG8gd29ybGQ="));
     try std.testing.expectEqualStrings("fwheufzjdf8jsdfll", try decode(allocator, "ZndoZXVmempkZjhqc2RmbGw="));
