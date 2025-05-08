@@ -1,62 +1,27 @@
-//! By convention, main.zig is where your main function lives in the case that
-//! you are building an executable. If you are making a library, the convention
-//! is to delete this file and start with root.zig instead.
-
+const std = @import("std");
 const b = @import("base64.zig");
 
 pub fn main() !void {
-    // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
-    std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
+    const allocator = std.heap.page_allocator;
+    const args = try std.process.argsAlloc(allocator);
 
-    
-    const num: u6 = 63;
-    const foo = [_]u8{b.encode_u8(num)};
-    std.debug.print("{} is {s}\n", .{num, foo}); 
+    if (args.len != 3) {
+        std.debug.print("Usage: {s} encode|decode <data>\n", .{args[0]});
+        return;
+    }
 
-    const char  = [_]u8{'A'};
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const allocator = gpa.allocator();
+    const mode = args[1];
+    const data = args[2];
 
-    const bar = b.encode(allocator, char);
-    std.log.debug("{}", .{bar});
-    allocator.free(bar);
-
-
-    // stdout is for the actual output of your application, for example if you
-    // are implementing gzip, then only the compressed bytes should be sent to
-    // stdout, not any debugging messages.
-    const stdout_file = std.io.getStdOut().writer();
-    var bw = std.io.bufferedWriter(stdout_file);
-    const stdout = bw.writer();
-
-    try stdout.print("Run `zig build test` to run the tests.\n", .{});
-
-    try bw.flush(); // Don't forget to flush!
+    if (std.mem.eql(u8, mode, "encode")) {
+        const result = b.encode(allocator, data);
+        defer allocator.free(result);
+        try std.io.getStdOut().writer().print("{s}\n", .{result});
+    } else if (std.mem.eql(u8, mode, "decode")) {
+        const result = try b.decode(allocator, data);
+        defer allocator.free(result);
+        try std.io.getStdOut().writer().print("{s}\n", .{result});
+    } else {
+        std.debug.print("Unknown mode: {s}\n", .{mode});
+    }
 }
-
-test "simple test" {
-    var list = std.ArrayList(i32).init(std.testing.allocator);
-    defer list.deinit(); // Try commenting this out and see if zig detects the memory leak!
-    try list.append(42);
-    try std.testing.expectEqual(@as(i32, 42), list.pop());
-}
-
-test "use other module" {
-    try std.testing.expectEqual(@as(i32, 150), lib.add(100, 50));
-}
-
-test "fuzz example" {
-    const Context = struct {
-        fn testOne(context: @This(), input: []const u8) anyerror!void {
-            _ = context;
-            // Try passing `--fuzz` to `zig build test` and see if it manages to fail this test case!
-            try std.testing.expect(!std.mem.eql(u8, "canyoufindme", input));
-        }
-    };
-    try std.testing.fuzz(Context{}, Context.testOne, .{});
-}
-
-const std = @import("std");
-
-/// This imports the separate module containing `root.zig`. Take a look in `build.zig` for details.
-const lib = @import("base64_util_lib");
